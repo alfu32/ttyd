@@ -18,6 +18,18 @@
 #define TTYD_VERSION "unknown"
 #endif
 
+#if defined(TTYD_BUILD_SHARED)
+#if defined(_WIN32)
+#define TTYD_MAIN_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TTYD_MAIN_EXPORT __attribute__((visibility("default")))
+#else
+#define TTYD_MAIN_EXPORT
+#endif
+#else
+#define TTYD_MAIN_EXPORT
+#endif
+
 volatile bool force_exit = false;
 struct lws_context *context;
 struct server *server;
@@ -301,7 +313,7 @@ static int calc_command_start(int argc, char **argv) {
   return start;
 }
 
-int main(int argc, char **argv) {
+TTYD_MAIN_EXPORT int main(int argc, char **argv) {
   if (argc == 1) {
     print_help();
     return 0;

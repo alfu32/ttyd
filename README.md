@@ -45,6 +45,43 @@ ttyd is a simple command-line tool for sharing terminal over the web.
 - Install with [Scoop](https://scoop.sh/#/apps?q=ttyd&s=2&d=1&o=true): `scoop install ttyd`
 - [Compile on Windows](https://github.com/tsl0922/ttyd/wiki/Compile-on-Windows)
 
+# Build as DLL/SO/DYLIB
+
+ttyd can also be built as a shared library for FFI callers, such as a Java application using JNI or JNA. The shared build exports the regular CLI entry point:
+
+```c
+int main(int argc, char **argv);
+```
+
+Install the native development dependencies before configuring. At minimum, CMake must be able to find headers and libraries for `libuv`, `libwebsockets`, `json-c`, and `zlib`. `libwebsockets` must be built with libuv support enabled (`LWS_WITH_LIBUV=ON`). For example, on Debian/Ubuntu:
+
+```bash
+sudo apt install build-essential cmake libuv1-dev libwebsockets-dev libjson-c-dev zlib1g-dev
+```
+
+On Windows with vcpkg, install the same dependency set before running CMake:
+
+```powershell
+vcpkg install libwebsockets libuv json-c zlib openssl getopt-win32 --triplet x64-windows-static
+```
+
+On macOS with Homebrew:
+
+```bash
+brew install cmake libuv libwebsockets json-c zlib openssl@3
+```
+
+Then configure and build the shared target with CMake:
+
+```bash
+cmake -S . -B build-shared -DTTYD_BUILD_SHARED=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build-shared --target ttyd_shared --config Release
+```
+
+On Windows this produces `ttyd.dll` under the build configuration directory, for example `build-shared/Release/ttyd.dll` with Visual Studio. On Linux this produces `libttyd.so`, usually at `build-shared/libttyd.so`. On macOS this produces `libttyd.dylib`, usually at `build-shared/libttyd.dylib`.
+
+When calling from Java FFI, pass arguments exactly as the CLI would receive them, including `argv[0]`. For example: `["ttyd", "-p", "7681", "bash"]`. The call runs the ttyd server loop and blocks until the server exits, so invoke it from a dedicated Java thread if the application must keep running other work.
+
 # Usage
 
 ## Command-line Options

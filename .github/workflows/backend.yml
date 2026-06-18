@@ -42,12 +42,53 @@ jobs:
         shell: pwsh
         run: |
           $env:VCPKG_ROOT = "${{ env.VCPKG_ROOT }}"
-          cmake -S . -B build -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="${{ env.TOOLCHAIN_FILE }}" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TRIPLET }}
+          cmake -S . -B build -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="${{ env.TOOLCHAIN_FILE }}" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TRIPLET }} -DTTYD_BUILD_SHARED=ON
           cmake --build build --config Release
       - uses: actions/upload-artifact@v7
         with:
           name: ttyd.msvc
           path: build/Release/ttyd.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ttyd.msvc.dll
+          path: |
+            build/Release/ttyd.dll
+            build/Release/ttyd.lib
+  linux-shared:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libuv1-dev libwebsockets-dev libjson-c-dev zlib1g-dev libssl-dev
+      - name: Build shared library
+        run: |
+          cmake -S . -B build-shared -DCMAKE_BUILD_TYPE=Release -DTTYD_BUILD_SHARED=ON
+          cmake --build build-shared --target ttyd_shared --config Release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ttyd.linux.so
+          path: build-shared/libttyd.so
+  macos-shared:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install packages
+        run: |
+          brew update
+          brew install cmake libuv libwebsockets json-c zlib openssl@3
+      - name: Build shared library
+        run: |
+          cmake -S . -B build-shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTTYD_BUILD_SHARED=ON \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix libuv);$(brew --prefix libwebsockets);$(brew --prefix json-c);$(brew --prefix zlib);$(brew --prefix openssl@3)"
+          cmake --build build-shared --target ttyd_shared --config Release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ttyd.macos.dylib
+          path: build-shared/libttyd.dylib
   cross:
     runs-on: ubuntu-24.04
     strategy:
@@ -63,9 +104,11 @@ jobs:
       - name: Cross build (${{ matrix.target }})
         env:
           BUILD_TARGET: ${{ matrix.target }}
+          TTYD_BUILD_SHARED: ${{ matrix.target == 'win32' && 'ON' || 'OFF' }}
         run: ./scripts/cross-build.sh
       - uses: actions/upload-artifact@v7
         with:
           name: ttyd.${{ matrix.target }}
-          path: build/ttyd*
-
+          path: |
+            build/ttyd*
+            build/*ttyd*.dll*

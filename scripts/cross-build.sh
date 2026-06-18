@@ -9,6 +9,7 @@ CROSS_ROOT="${CROSS_ROOT:-/opt/cross}"
 STAGE_ROOT="${STAGE_ROOT:-/opt/stage}"
 BUILD_ROOT="${BUILD_ROOT:-/opt/build}"
 BUILD_TARGET="${BUILD_TARGET:-x86_64}"
+TTYD_BUILD_SHARED="${TTYD_BUILD_SHARED:-OFF}"
 
 ZLIB_VERSION="${ZLIB_VERSION:-1.3.2}"
 JSON_C_VERSION="${JSON_C_VERSION:-0.18}"
@@ -35,6 +36,7 @@ build_json-c() {
             -DCMAKE_INSTALL_PREFIX="${STAGE_DIR}" \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_TESTING=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DDISABLE_THREAD_LOCAL_STORAGE=ON \
             ..
         make -j"$(nproc)" install
@@ -150,6 +152,7 @@ build_ttyd() {
         -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
         -DCMAKE_C_FLAGS="-Os -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -flto" \
         -DCMAKE_EXE_LINKER_FLAGS="-static -no-pie -Wl,-s -Wl,-Bsymbolic -Wl,--gc-sections" \
+        -DTTYD_BUILD_SHARED="${TTYD_BUILD_SHARED}" \
         -DCMAKE_BUILD_TYPE=RELEASE \
         ..
     make install

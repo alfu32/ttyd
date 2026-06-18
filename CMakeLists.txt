@@ -4,6 +4,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 project(ttyd VERSION 1.7.7 LANGUAGES C)
 
+option(TTYD_BUILD_SHARED "Build ttyd as a shared library exporting main for FFI callers" OFF)
+
 set(TTYD_VERSION "${PROJECT_VERSION}")
 
 include(GetGitVersion)
@@ -107,15 +109,40 @@ else()
     endif()
 endif()
 
+function(configure_ttyd_target target_name)
+    target_include_directories(${target_name} PUBLIC ${INCLUDE_DIRS})
+    target_link_libraries(${target_name} ${LINK_LIBS})
+    target_compile_definitions(${target_name} PUBLIC
+        TTYD_VERSION="${TTYD_VERSION}"
+        $<$<PLATFORM_ID:Windows>:_WIN32_WINNT=0xa00 WINVER=0xa00>
+    )
+endfunction()
+
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-target_include_directories(${PROJECT_NAME} PUBLIC ${INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} ${LINK_LIBS})
-target_compile_definitions(${PROJECT_NAME} PUBLIC
-    TTYD_VERSION="${TTYD_VERSION}"
-    $<$<PLATFORM_ID:Windows>:_WIN32_WINNT=0xa00 WINVER=0xa00>
-)
+configure_ttyd_target(${PROJECT_NAME})
+
+if(TTYD_BUILD_SHARED)
+    add_library(${PROJECT_NAME}_shared SHARED ${SOURCE_FILES})
+    set_target_properties(${PROJECT_NAME}_shared PROPERTIES
+        OUTPUT_NAME ${PROJECT_NAME}
+        C_VISIBILITY_PRESET hidden
+        WINDOWS_EXPORT_ALL_SYMBOLS OFF
+    )
+    if(WIN32)
+        set_target_properties(${PROJECT_NAME}_shared PROPERTIES PREFIX "")
+    endif()
+    configure_ttyd_target(${PROJECT_NAME}_shared)
+    target_compile_definitions(${PROJECT_NAME}_shared PRIVATE TTYD_BUILD_SHARED)
+endif()
 
 include(GNUInstallDirs)
 
 install(TARGETS ${PROJECT_NAME} DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT prog)
+if(TTYD_BUILD_SHARED)
+    install(TARGETS ${PROJECT_NAME}_shared
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT lib
+        LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT lib
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT lib
+    )
+endif()
 install(FILES man/ttyd.1 DESTINATION "${CMAKE_INSTALL_MANDIR}/man1" COMPONENT doc)
