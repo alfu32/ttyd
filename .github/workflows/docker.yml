@@ -14,6 +14,7 @@ jobs:
     env:
       DOCKER_HUB_USER: ${{ secrets.DOCKER_HUB_USER }}
       DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+      DOCKER_HUB_REPOSITORY: ${{ secrets.DOCKER_HUB_REPOSITORY }}
     steps:
       - uses: actions/checkout@v6
       - name: Install packages
@@ -45,7 +46,7 @@ jobs:
         run: |
           REPO="$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
           GHCR_IMAGE="ghcr.io/${REPO}"
-          DOCKER_HUB_IMAGE="tsl0922/ttyd"
+          DOCKER_HUB_IMAGE="${DOCKER_HUB_REPOSITORY:-${DOCKER_HUB_USER}/ttyd}"
           case $GITHUB_REF in
             refs/tags/*)
               TAG_NAME=${GITHUB_REF#refs/tags/}
