@@ -17,7 +17,7 @@ on:
 
 jobs:
   msvc:
-    runs-on: windows-latest
+    runs-on: windows-2022
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
       VCPKG_EXE: ${{ github.workspace }}/vcpkg/vcpkg.exe
@@ -42,7 +42,7 @@ jobs:
         shell: pwsh
         run: |
           $env:VCPKG_ROOT = "${{ env.VCPKG_ROOT }}"
-          cmake -S . -B build -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="${{ env.TOOLCHAIN_FILE }}" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TRIPLET }} -DTTYD_BUILD_SHARED=ON
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="${{ env.TOOLCHAIN_FILE }}" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TRIPLET }} -DTTYD_BUILD_SHARED=ON
           cmake --build build --config Release
       - uses: actions/upload-artifact@v7
         with:
@@ -61,10 +61,48 @@ jobs:
       - name: Install packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake libuv1-dev libwebsockets-dev libjson-c-dev zlib1g-dev libssl-dev
+          sudo apt-get install -y build-essential cmake curl libuv1-dev libjson-c-dev zlib1g-dev libssl-dev
+      - name: Build PIC libwebsockets
+        run: |
+          curl -fSsLo- https://github.com/warmcat/libwebsockets/archive/v4.5.7.tar.gz | tar xz -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/libwebsockets-4.5.7" -B "$RUNNER_TEMP/libwebsockets-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/libwebsockets-stage" \
+            -DLWS_WITHOUT_TESTAPPS=ON \
+            -DLWS_WITH_SSL=ON \
+            -DLWS_WITH_LIBUV=ON \
+            -DLWS_STATIC_PIC=ON \
+            -DLWS_WITH_STATIC=ON \
+            -DLWS_WITH_SHARED=OFF \
+            -DLWS_UNIX_SOCK=ON \
+            -DLWS_IPV6=ON \
+            -DLWS_ROLE_RAW_FILE=OFF \
+            -DLWS_WITH_HTTP2=ON \
+            -DLWS_WITH_HTTP_BASIC_AUTH=OFF \
+            -DLWS_WITH_HTTP_STREAM_COMPRESSION=ON \
+            -DLWS_WITH_UDP=OFF \
+            -DLWS_WITHOUT_CLIENT=ON \
+            -DLWS_WITHOUT_EXTENSIONS=OFF \
+            -DLWS_WITH_LEJP=OFF \
+            -DLWS_WITH_LEJP_CONF=OFF \
+            -DLWS_WITH_LWSAC=OFF \
+            -DLWS_WITH_SEQUENCER=OFF \
+            -DLWS_WITH_UPNG=OFF \
+            -DLWS_WITH_JPEG=OFF \
+            -DLWS_WITH_DLO=OFF \
+            -DLWS_WITH_SYS_STATE=OFF \
+            -DLWS_WITH_SYS_SMD=OFF \
+            -DLWS_WITH_SECURE_STREAMS=OFF \
+            -DLWS_CTEST_INTERNET_AVAILABLE=OFF
+          cmake --build "$RUNNER_TEMP/libwebsockets-build" --target install --config Release
       - name: Build shared library
         run: |
-          cmake -S . -B build-shared -DCMAKE_BUILD_TYPE=Release -DTTYD_BUILD_SHARED=ON
+          LWS_DIR="$(find "$RUNNER_TEMP/libwebsockets-stage" -name libwebsockets-config.cmake -printf '%h\n' -quit)"
+          test -n "$LWS_DIR"
+          cmake -S . -B build-shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTTYD_BUILD_SHARED=ON \
+            -DLibwebsockets_DIR="$LWS_DIR"
           cmake --build build-shared --target ttyd_shared --config Release
       - uses: actions/upload-artifact@v7
         with:

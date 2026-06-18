@@ -124,6 +124,21 @@ OPTIONS:
 
 Read the example usage on the [wiki](https://github.com/tsl0922/ttyd/wiki/Example-Usage).
 
+## Security
+
+ttyd exposes a local process through HTTP and WebSocket. Treat any reachable ttyd listener as remote terminal access to the account running the process.
+
+- Bind to a trusted interface by default, for example `ttyd -i 127.0.0.1 bash`, or use a UNIX domain socket behind a reverse proxy. Do not publish port `7681` directly to the Internet.
+- Require authentication for any network-accessible listener: `ttyd -c user:strong-password bash`. Basic authentication should be used with TLS or behind an HTTPS reverse proxy.
+- Enable origin checks for browser-facing deployments with `-O` to reject WebSocket connections from different origins.
+- Use `-W` only when remote clients must type into the terminal. A writable shell, especially `ttyd -W bash`, gives connected clients command execution as the ttyd process user.
+- Do not run ttyd as root unless unavoidable. Prefer `-u`, `-g`, containers with a non-root user, or another least-privilege account.
+- Be careful with `-a`/`--url-arg`; it lets clients append command arguments through the URL and should only be enabled for trusted users.
+- When using `-H`/`--auth-header`, ensure the reverse proxy strips any client-supplied copy of that header before setting its trusted value.
+- File transfer options such as `enableZmodem=true` and `enableTrzsz=true` intentionally allow files to move through the terminal session; enable them only for trusted users.
+
+The runtime client connects back to the same host for `/token` and `/ws`; no third-party telemetry endpoint is required by ttyd itself. Build and packaging scripts do download dependencies from upstream project hosts, so verify release artifacts and dependency sources when producing trusted binaries.
+
 ## Browser Support
 
 Modern browsers, See [Browser Support](https://github.com/xtermjs/xterm.js#browser-support).

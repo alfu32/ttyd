@@ -21,7 +21,7 @@ build_zlib() {
     echo "=== Building zlib-${ZLIB_VERSION} (${TARGET})..."
     curl -fSsLo- "https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz" | tar xz -C "${BUILD_DIR}"
     pushd "${BUILD_DIR}"/zlib-"${ZLIB_VERSION}"
-        env CHOST="${TARGET}" ./configure --static --archs="-fPIC" --prefix="${STAGE_DIR}" --disable-crcvx
+        env CHOST="${TARGET}" CFLAGS="-g0" ./configure --static --archs="-fPIC" --prefix="${STAGE_DIR}" --disable-crcvx
         make -j"$(nproc)" install
     popd
 }
@@ -37,6 +37,7 @@ build_json-c() {
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_TESTING=OFF \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG -g0" \
             -DDISABLE_THREAD_LOCAL_STORAGE=ON \
             ..
         make -j"$(nproc)" install
@@ -64,7 +65,7 @@ build_openssl() {
     echo "=== Building openssl-${OPENSSL_VERSION} (${openssl_target})..."
     curl -sLo- "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" | tar xz -C "${BUILD_DIR}"
     pushd "${BUILD_DIR}/openssl-${OPENSSL_VERSION}"
-        openssl_cflags="-fPIC -latomic"
+        openssl_cflags="-fPIC -g0 -latomic"
         case ${BUILD_TARGET} in
             s390x) openssl_cflags="${openssl_cflags} -march=z10" ;;
             win32)
@@ -82,7 +83,7 @@ build_libuv() {
     curl -fSsLo- "https://dist.libuv.org/dist/v${LIBUV_VERSION}/libuv-v${LIBUV_VERSION}.tar.gz" | tar xz -C "${BUILD_DIR}"
     pushd "${BUILD_DIR}/libuv-v${LIBUV_VERSION}"
         ./autogen.sh
-        env CFLAGS=-fPIC ./configure --disable-shared --enable-static --prefix="${STAGE_DIR}" --host="${TARGET}"
+        env CFLAGS="-fPIC -g0" ./configure --disable-shared --enable-static --prefix="${STAGE_DIR}" --host="${TARGET}"
         make -j"$(nproc)" install
     popd
 }
@@ -114,6 +115,7 @@ build_libwebsockets() {
             -DCMAKE_INSTALL_PREFIX="${STAGE_DIR}" \
             -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
             -DCMAKE_EXE_LINKER_FLAGS="-static" \
+            -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG -g0" \
             -DLWS_WITHOUT_TESTAPPS=ON \
             -DLWS_WITH_SSL=ON \
             -DLWS_WITH_LIBUV=ON \
@@ -144,13 +146,23 @@ build_libwebsockets() {
     popd
 }
 
+strip_static_archives() {
+    if ! command -v "${TARGET}-strip" > /dev/null 2>&1; then
+        return
+    fi
+    find "${STAGE_DIR}" -name "*.a" -exec "${TARGET}-strip" --strip-debug {} +
+}
+
 build_ttyd() {
     echo "=== Building ttyd (${TARGET})..."
     rm -rf build && mkdir -p build && cd build
+    if [ "${TTYD_BUILD_SHARED}" = "ON" ]; then
+        strip_static_archives
+    fi
     cmake -DCMAKE_TOOLCHAIN_FILE="${BUILD_DIR}/cross-${TARGET}.cmake" \
         -DCMAKE_INSTALL_PREFIX="${STAGE_DIR}" \
         -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
-        -DCMAKE_C_FLAGS="-Os -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -flto" \
+        -DCMAKE_C_FLAGS="-Os -g0 -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -flto" \
         -DCMAKE_EXE_LINKER_FLAGS="-static -no-pie -Wl,-s -Wl,-Bsymbolic -Wl,--gc-sections" \
         -DTTYD_BUILD_SHARED="${TTYD_BUILD_SHARED}" \
         -DCMAKE_BUILD_TYPE=RELEASE \
