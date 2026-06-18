@@ -53,3 +53,6 @@ build
 # Project files
 !init.d
 AGENTS.md
+
+.kode
+.kode.json
