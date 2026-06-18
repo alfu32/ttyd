@@ -55,7 +55,7 @@ jobs:
             build/Release/ttyd.dll
             build/Release/ttyd.lib
   linux-shared:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
       - name: Install packages
