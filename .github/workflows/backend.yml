@@ -65,6 +65,7 @@ jobs:
       - name: Build PIC libwebsockets
         run: |
           curl -fSsLo- https://github.com/warmcat/libwebsockets/archive/v4.5.7.tar.gz | tar xz -C "$RUNNER_TEMP"
+          sed -i 's/ websockets_shared//g' "$RUNNER_TEMP/libwebsockets-4.5.7/cmake/libwebsockets-config.cmake.in"
           cmake -S "$RUNNER_TEMP/libwebsockets-4.5.7" -B "$RUNNER_TEMP/libwebsockets-build" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/libwebsockets-stage" \
@@ -142,11 +143,9 @@ jobs:
       - name: Cross build (${{ matrix.target }})
         env:
           BUILD_TARGET: ${{ matrix.target }}
-          TTYD_BUILD_SHARED: ${{ matrix.target == 'win32' && 'ON' || 'OFF' }}
+          TTYD_BUILD_SHARED: OFF
         run: ./scripts/cross-build.sh
       - uses: actions/upload-artifact@v7
         with:
           name: ttyd.${{ matrix.target }}
-          path: |
-            build/ttyd*
-            build/*ttyd*.dll*
+          path: build/ttyd*

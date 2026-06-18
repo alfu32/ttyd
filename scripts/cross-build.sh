@@ -17,9 +17,30 @@ OPENSSL_VERSION="${OPENSSL_VERSION:-3.6.1}"
 LIBUV_VERSION="${LIBUV_VERSION:-1.52.1}"
 LIBWEBSOCKETS_VERSION="${LIBWEBSOCKETS_VERSION:-4.5.7}"
 
+download_tarball() {
+    local dest="$1"
+    shift
+    local url
+
+    for url in "$@"; do
+        echo "=== Downloading ${url}"
+        if curl -fL --retry 3 --retry-delay 5 --retry-all-errors -o "${dest}" "${url}"; then
+            return 0
+        fi
+    done
+
+    echo "failed to download tarball: ${dest}" >&2
+    return 1
+}
+
 build_zlib() {
     echo "=== Building zlib-${ZLIB_VERSION} (${TARGET})..."
-    curl -fSsLo- "https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz" | tar xz -C "${BUILD_DIR}"
+    zlib_tarball="${BUILD_DIR}/zlib-${ZLIB_VERSION}.tar.gz"
+    download_tarball "${zlib_tarball}" \
+        "https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz" \
+        "https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz" \
+        "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz"
+    tar xzf "${zlib_tarball}" -C "${BUILD_DIR}"
     pushd "${BUILD_DIR}"/zlib-"${ZLIB_VERSION}"
         env CHOST="${TARGET}" CFLAGS="-g0" ./configure --static --archs="-fPIC" --prefix="${STAGE_DIR}" --disable-crcvx
         make -j"$(nproc)" install

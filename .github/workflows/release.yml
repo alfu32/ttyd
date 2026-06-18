@@ -26,9 +26,29 @@ jobs:
       - run: |
           mkdir build
           for file in ttyd.*/*; do
-            target=$(echo $file | awk -F/ '{print $1}')
-            [[ $file == *.exe ]] && target="$target.exe"
-            mv $file build/$target
+            artifact="${file%%/*}"
+            name="$(basename "$file")"
+            case "$name" in
+              ttyd.exe)
+                target="${artifact}.exe"
+                ;;
+              ttyd.dll)
+                target="${artifact}"
+                ;;
+              ttyd.lib)
+                target="${artifact%.dll}.lib"
+                ;;
+              libttyd.so|libttyd.dylib)
+                target="${artifact}"
+                ;;
+              ttyd)
+                target="${artifact}"
+                ;;
+              *)
+                target="${artifact}.${name}"
+                ;;
+            esac
+            mv "$file" "build/$target"
           done
           pushd build; sha256sum ttyd.* > SHA256SUMS; popd
       - uses: ncipollo/release-action@v1
