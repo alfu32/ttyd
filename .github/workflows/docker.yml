@@ -11,6 +11,9 @@ jobs:
     permissions:
       packages: write
       contents: read
+    env:
+      DOCKER_HUB_USER: ${{ secrets.DOCKER_HUB_USER }}
+      DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - name: Install packages
@@ -28,9 +31,10 @@ jobs:
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
+        if: ${{ env.DOCKER_HUB_USER != '' && env.DOCKER_HUB_TOKEN != '' }}
         with:
-          username: ${{ secrets.DOCKER_HUB_USER }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+          username: ${{ env.DOCKER_HUB_USER }}
+          password: ${{ env.DOCKER_HUB_TOKEN }}
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -39,16 +43,34 @@ jobs:
       - name: Determine docker tags
         id: docker_tag
         run: |
+          REPO="$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          GHCR_IMAGE="ghcr.io/${REPO}"
+          DOCKER_HUB_IMAGE="tsl0922/ttyd"
           case $GITHUB_REF in
             refs/tags/*)
               TAG_NAME=${GITHUB_REF#refs/tags/}
-              echo "DOCKER_TAG=tsl0922/ttyd:${TAG_NAME}" >> $GITHUB_ENV
-              echo "ALPINE_TAG=tsl0922/ttyd:${TAG_NAME}-alpine" >> $GITHUB_ENV
+              IMAGE_TAG="${TAG_NAME}"
+              ALPINE_IMAGE_TAG="${TAG_NAME}-alpine"
               ;;
             *)
-              echo "DOCKER_TAG=tsl0922/ttyd:latest" >> $GITHUB_ENV
-              echo "ALPINE_TAG=tsl0922/ttyd:alpine" >> $GITHUB_ENV
+              IMAGE_TAG="latest"
+              ALPINE_IMAGE_TAG="alpine"
           esac
+
+          {
+            echo "DOCKER_TAGS<<EOF"
+            echo "${GHCR_IMAGE}:${IMAGE_TAG}"
+            if [ -n "$DOCKER_HUB_USER" ] && [ -n "$DOCKER_HUB_TOKEN" ]; then
+              echo "${DOCKER_HUB_IMAGE}:${IMAGE_TAG}"
+            fi
+            echo "EOF"
+            echo "ALPINE_TAGS<<EOF"
+            echo "${GHCR_IMAGE}:${ALPINE_IMAGE_TAG}"
+            if [ -n "$DOCKER_HUB_USER" ] && [ -n "$DOCKER_HUB_TOKEN" ]; then
+              echo "${DOCKER_HUB_IMAGE}:${ALPINE_IMAGE_TAG}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_ENV"
       - name: build/push docker image
         uses: docker/build-push-action@v7
         with:
@@ -56,9 +78,7 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm/v7,linux/arm64,linux/s390x
           push: true
-          tags: |
-            ${{ env.DOCKER_TAG }}
-            ghcr.io/${{ env.DOCKER_TAG }}
+          tags: ${{ env.DOCKER_TAGS }}
       - name: build/push docker image (alpine)
         uses: docker/build-push-action@v7
         with:
@@ -66,6 +86,4 @@ jobs:
           file: ./Dockerfile.alpine
           platforms: linux/amd64,linux/arm/v7,linux/arm64,linux/s390x
           push: true
-          tags: |
-            ${{ env.ALPINE_TAG }}
-            ghcr.io/${{ env.ALPINE_TAG }}
+          tags: ${{ env.ALPINE_TAGS }}
