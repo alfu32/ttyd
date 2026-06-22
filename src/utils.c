@@ -178,13 +178,50 @@ const char *quote_arg(const char *arg) {
   return q;
 }
 
+static void trim_message(char *message) {
+  if (message == NULL) return;
+  size_t len = strlen(message);
+  while (len > 0 && (message[len - 1] == '\r' || message[len - 1] == '\n')) {
+    message[--len] = '\0';
+  }
+}
+
+static bool format_system_message(DWORD code, char **message) {
+  DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
+  LPSTR buffer = NULL;
+  DWORD len = FormatMessageA(flags, NULL, code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&buffer, 0, NULL);
+  if (len == 0) return false;
+  *message = buffer;
+  trim_message(*message);
+  return true;
+}
+
 void print_error(char *func) {
-  LPVOID buffer;
-  DWORD dw = GetLastError();
-  FormatMessage(
-      FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-      NULL, dw, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&buffer, 0, NULL);
-  wprintf(L"== %s failed with error %d: %s", func, dw, buffer);
-  LocalFree(buffer);
+  char *message = NULL;
+  DWORD code = GetLastError();
+  if (format_system_message(code, &message)) {
+    fprintf(stderr, "== %s failed with Win32 error %lu: %s\n", func, (unsigned long)code, message);
+    LocalFree(message);
+    return;
+  }
+  fprintf(stderr, "== %s failed with Win32 error %lu\n", func, (unsigned long)code);
+}
+
+void print_hresult(char *func, HRESULT hr) {
+  char *message = NULL;
+  DWORD code = (DWORD)hr;
+  bool formatted = format_system_message(code, &message);
+
+  if (!formatted && HRESULT_FACILITY(hr) == FACILITY_WIN32) {
+    code = (DWORD)HRESULT_CODE(hr);
+    formatted = format_system_message(code, &message);
+  }
+
+  if (formatted) {
+    fprintf(stderr, "== %s failed with HRESULT 0x%08lx: %s\n", func, (unsigned long)hr, message);
+    LocalFree(message);
+    return;
+  }
+  fprintf(stderr, "== %s failed with HRESULT 0x%08lx\n", func, (unsigned long)hr);
 }
 #endif

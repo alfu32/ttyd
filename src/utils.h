@@ -1,6 +1,10 @@
 #ifndef TTYD_UTIL_H
 #define TTYD_UTIL_H
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #define container_of(ptr, type, member)                \
   ({                                                   \
     const typeof(((type *)0)->member) *__mptr = (ptr); \
@@ -35,5 +39,6 @@ int open_uri(char *uri);
 char *strsep(char **sp, char *sep);
 const char *quote_arg(const char *arg);
 void print_error(char *func);
+void print_hresult(char *func, HRESULT hr);
 #endif
 #endif  // TTYD_UTIL_H

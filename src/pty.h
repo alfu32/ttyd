@@ -6,6 +6,8 @@
 #include <uv.h>
 
 #ifdef _WIN32
+#include <windows.h>
+
 #ifndef HPCON
 #define HPCON VOID *
 #endif

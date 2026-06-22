@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +33,8 @@ extern char **environ;
 #include "utils.h"
 
 #ifdef _WIN32
+#include <io.h>
+
 HRESULT (WINAPI *pCreatePseudoConsole)(COORD, HANDLE, HANDLE, DWORD, HPCON *);
 HRESULT (WINAPI *pResizePseudoConsole)(HPCON, COORD);
 void (WINAPI *pClosePseudoConsole)(HPCON);
@@ -149,8 +152,14 @@ bool pty_resize(pty_process *process) {
   if (process == NULL) return false;
   if (process->columns <= 0 || process->rows <= 0) return false;
 #ifdef _WIN32
-  COORD size = {(int16_t) process->columns, (int16_t) process->rows};
-  return pResizePseudoConsole(process->pty, size) == S_OK;
+  if (process->columns > SHRT_MAX || process->rows > SHRT_MAX) return false;
+  COORD size = {(SHORT) process->columns, (SHORT) process->rows};
+  HRESULT hr = pResizePseudoConsole(process->pty, size);
+  if (FAILED(hr)) {
+    print_hresult("ResizePseudoConsole", hr);
+    return false;
+  }
+  return true;
 #else
   struct winsize size = {process->rows, process->columns, 0, 0};
   return ioctl(process->pty, TIOCSWINSZ, &size) == 0;
@@ -218,42 +227,64 @@ static WCHAR *join_args(char **argv) {
   return to_utf16(args);
 }
 
-static bool conpty_setup(HPCON *hnd, COORD size, STARTUPINFOEXW *si_ex, char **in_name, char **out_name) {
-  static int count = 0;
-  char buf[256];
+static void close_uv_file(uv_file *file) {
+  if (*file == -1) return;
+  _close(*file);
+  *file = -1;
+}
+
+static COORD conpty_size(uint16_t columns, uint16_t rows) {
+  COORD size = {80, 24};
+  if (columns > 0 && columns <= SHRT_MAX) size.X = (SHORT) columns;
+  if (rows > 0 && rows <= SHRT_MAX) size.Y = (SHORT) rows;
+  return size;
+}
+
+static bool open_conpty_pipe(uv_pipe_t *pipe, uv_file *file, const char *name) {
+  int err = uv_pipe_open(pipe, *file);
+  if (err) {
+    fprintf(stderr, "== uv_pipe_open(%s) failed: %s\n", name, uv_strerror(err));
+    return false;
+  }
+  *file = -1;
+  return true;
+}
+
+static bool conpty_setup(HPCON *hnd, COORD size, STARTUPINFOEXW *si_ex, uv_pipe_t *in, uv_pipe_t *out,
+                         uv_file *conpty_input, uv_file *conpty_output) {
   HPCON pty = INVALID_HANDLE_VALUE;
-  SECURITY_ATTRIBUTES sa = {0};
-  HANDLE in_pipe = INVALID_HANDLE_VALUE;
-  HANDLE out_pipe = INVALID_HANDLE_VALUE;
-  const DWORD open_mode = PIPE_ACCESS_INBOUND | PIPE_ACCESS_OUTBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE;
-  const DWORD pipe_mode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT;
-  DWORD pid = GetCurrentProcessId();
+  uv_file input_pipe[2] = {-1, -1};
+  uv_file output_pipe[2] = {-1, -1};
+  bool attr_list_initialized = false;
   bool ret = false;
 
-  sa.nLength = sizeof(sa);
-
-  snprintf(buf, sizeof(buf), "\\\\.\\pipe\\ttyd-term-in-%d-%d", pid, count);
-  *in_name = strdup(buf);
-  snprintf(buf, sizeof(buf), "\\\\.\\pipe\\ttyd-term-out-%d-%d", pid, count);
-  *out_name = strdup(buf);
-  in_pipe = CreateNamedPipeA(*in_name, open_mode, pipe_mode, 1, 0, 0, 30000, &sa);
-  out_pipe = CreateNamedPipeA(*out_name, open_mode, pipe_mode, 1, 0, 0, 30000, &sa);
-  if (in_pipe == INVALID_HANDLE_VALUE || out_pipe == INVALID_HANDLE_VALUE) {
-    print_error("CreateNamedPipeA");
+  int err = uv_pipe(input_pipe, 0, UV_NONBLOCK_PIPE);
+  if (err) {
+    fprintf(stderr, "== uv_pipe(input) failed: %s\n", uv_strerror(err));
     goto failed;
   }
 
-  HRESULT hr = pCreatePseudoConsole(size, in_pipe, out_pipe, 0, &pty);
+  err = uv_pipe(output_pipe, UV_NONBLOCK_PIPE, 0);
+  if (err) {
+    fprintf(stderr, "== uv_pipe(output) failed: %s\n", uv_strerror(err));
+    goto failed;
+  }
+
+  HANDLE input_read = (HANDLE) _get_osfhandle(input_pipe[0]);
+  HANDLE output_write = (HANDLE) _get_osfhandle(output_pipe[1]);
+  if (input_read == INVALID_HANDLE_VALUE || output_write == INVALID_HANDLE_VALUE) {
+    fprintf(stderr, "== _get_osfhandle failed while preparing ConPTY pipes\n");
+    goto failed;
+  }
+
+  HRESULT hr = pCreatePseudoConsole(size, input_read, output_write, 0, &pty);
   if (FAILED(hr)) {
-    print_error("CreatePseudoConsole");
+    fprintf(stderr, "CreatePseudoConsole requested size: %dx%d\n", size.X, size.Y);
+    print_hresult("CreatePseudoConsole", hr);
     goto failed;
   }
 
   si_ex->StartupInfo.cb = sizeof(STARTUPINFOEXW);
-  si_ex->StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
-  si_ex->StartupInfo.hStdError = NULL;
-  si_ex->StartupInfo.hStdInput = NULL;
-  si_ex->StartupInfo.hStdOutput = NULL;
   size_t bytes_required;
   InitializeProcThreadAttributeList(NULL, 1, 0, &bytes_required);
   si_ex->lpAttributeList = (PPROC_THREAD_ATTRIBUTE_LIST) xmalloc(bytes_required);
@@ -261,33 +292,39 @@ static bool conpty_setup(HPCON *hnd, COORD size, STARTUPINFOEXW *si_ex, char **i
     print_error("InitializeProcThreadAttributeList");
     goto failed;
   }
+  attr_list_initialized = true;
   if (!UpdateProcThreadAttribute(si_ex->lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, pty, sizeof(HPCON),
                                  NULL, NULL)) {
     print_error("UpdateProcThreadAttribute");
     goto failed;
   }
-  count++;
+
+  if (!open_conpty_pipe(in, &input_pipe[1], "input")) goto failed;
+  if (!open_conpty_pipe(out, &output_pipe[0], "output")) goto failed;
+
+  *conpty_input = input_pipe[0];
+  input_pipe[0] = -1;
+  *conpty_output = output_pipe[1];
+  output_pipe[1] = -1;
   *hnd = pty;
+  pty = INVALID_HANDLE_VALUE;
   ret = true;
   goto done;
 
 failed:
   ret = false;
-  free(*in_name);
-  *in_name = NULL;
-  free(*out_name);
-  *out_name = NULL;
-done:
-  if (in_pipe != INVALID_HANDLE_VALUE) CloseHandle(in_pipe);
-  if (out_pipe != INVALID_HANDLE_VALUE) CloseHandle(out_pipe);
-  return ret;
-}
-
-static void connect_cb(uv_connect_t *req, int status) {
-  if (status != 0) {
-    fprintf(stderr, "connect_cb: pipe connect failed: %s\n", uv_strerror(status));
+  if (pty != INVALID_HANDLE_VALUE) pClosePseudoConsole(pty);
+  if (si_ex->lpAttributeList != NULL) {
+    if (attr_list_initialized) DeleteProcThreadAttributeList(si_ex->lpAttributeList);
+    free(si_ex->lpAttributeList);
+    si_ex->lpAttributeList = NULL;
   }
-  free(req);
+done:
+  close_uv_file(&input_pipe[0]);
+  close_uv_file(&input_pipe[1]);
+  close_uv_file(&output_pipe[0]);
+  close_uv_file(&output_pipe[1]);
+  return ret;
 }
 
 static void CALLBACK conpty_exit(void *context, BOOLEAN unused) {
@@ -310,28 +347,24 @@ static void async_cb(uv_async_t *async) {
 }
 
 int pty_spawn(pty_process *process, pty_read_cb read_cb, pty_exit_cb exit_cb) {
-  char *in_name = NULL;
-  char *out_name = NULL;
+  uv_file conpty_input = -1;
+  uv_file conpty_output = -1;
   DWORD flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT;
-  COORD size = {(int16_t) process->columns, (int16_t) process->rows};
-
-  if (!conpty_setup(&process->pty, size, &process->si, &in_name, &out_name)) return 1;
+  COORD size = conpty_size(process->columns, process->rows);
+  int status = 1;
+  PROCESS_INFORMATION pi = {0};
+  WCHAR *cmdline = NULL, *cwd = NULL;
 
   SetConsoleCtrlHandler(NULL, FALSE);
 
-  int status = 1;
   process->in = xmalloc(sizeof(uv_pipe_t));
   process->out = xmalloc(sizeof(uv_pipe_t));
   uv_pipe_init(process->loop, process->in, 0);
   uv_pipe_init(process->loop, process->out, 0);
 
-  uv_connect_t *in_req = xmalloc(sizeof(uv_connect_t));
-  uv_connect_t *out_req = xmalloc(sizeof(uv_connect_t));
-  uv_pipe_connect(in_req, process->in, in_name, connect_cb);
-  uv_pipe_connect(out_req, process->out, out_name, connect_cb);
+  if (!conpty_setup(&process->pty, size, &process->si, process->in, process->out, &conpty_input, &conpty_output))
+    goto cleanup;
 
-  PROCESS_INFORMATION pi = {0};
-  WCHAR *cmdline = NULL, *cwd = NULL;
   cmdline = join_args(process->argv);
   if (cmdline == NULL) goto cleanup;
   if (process->envp != NULL) {
@@ -350,10 +383,10 @@ int pty_spawn(pty_process *process, pty_read_cb read_cb, pty_exit_cb exit_cb) {
 
   if (!CreateProcessW(NULL, cmdline, NULL, NULL, FALSE, flags, NULL, cwd, &process->si.StartupInfo, &pi)) {
     print_error("CreateProcessW");
-    DWORD exitCode = 0;
-    if (GetExitCodeProcess(pi.hProcess, &exitCode)) printf("== exit code: %d\n", exitCode);
     goto cleanup;
   }
+  close_uv_file(&conpty_input);
+  close_uv_file(&conpty_output);
 
   process->pid = pi.dwProcessId;
   process->handle = pi.hProcess;
@@ -371,8 +404,9 @@ int pty_spawn(pty_process *process, pty_read_cb read_cb, pty_exit_cb exit_cb) {
   status = 0;
 
 cleanup:
-  if (in_name != NULL) free(in_name);
-  if (out_name != NULL) free(out_name);
+  close_uv_file(&conpty_input);
+  close_uv_file(&conpty_output);
+  if (pi.hThread != NULL) CloseHandle(pi.hThread);
   if (cmdline != NULL) free(cmdline);
   if (cwd != NULL) free(cwd);
   return status;
