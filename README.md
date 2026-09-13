@@ -80,7 +80,7 @@ cmake --build build-shared --target ttyd_shared --config Release
 
 On Windows this produces `ttyd.dll` under the build configuration directory, for example `build-shared/Release/ttyd.dll` with Visual Studio. On Linux this produces `libttyd.so`, usually at `build-shared/libttyd.so`. On macOS this produces `libttyd.dylib`, usually at `build-shared/libttyd.dylib`.
 
-Build Linux release artifacts on the oldest glibc version you need to support. The CI `ttyd.linux.so` artifact is built on Ubuntu 22.04 so it remains compatible with glibc 2.35 or newer.
+Build Linux release artifacts on the oldest glibc version you need to support. The CI `ttyd.linux.so` and `ttyd.linux.aarch64.so` artifacts are built on Ubuntu 22.04 so they remain compatible with glibc 2.35 or newer. CI also publishes `ttyd.macos.x86_64.dylib`, `ttyd.macos.aarch64.dylib`, `ttyd.msvc.dll`, and `ttyd.msvc.arm64.dll`.
 
 When calling from Java FFI, pass arguments exactly as the CLI would receive them, including `argv[0]`. For example: `["ttyd", "-p", "7681", "bash"]`. The call runs the ttyd server loop and blocks until the server exits, so invoke it from a dedicated Java thread if the application must keep running other work.
 

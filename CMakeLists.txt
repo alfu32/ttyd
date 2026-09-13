@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.12.0)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-project(ttyd VERSION 1.8.1 LANGUAGES C)
+project(ttyd VERSION 1.8.2 LANGUAGES C)
 
 option(TTYD_BUILD_SHARED "Build ttyd as a shared library exporting main for FFI callers" OFF)
 
@@ -146,3 +146,4 @@ if(TTYD_BUILD_SHARED)
     )
 endif()
 install(FILES man/ttyd.1 DESTINATION "${CMAKE_INSTALL_MANDIR}/man1" COMPONENT doc)
+
