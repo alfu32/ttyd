@@ -1,19 +1,24 @@
 name: backend
 
 on:
-  push:
-    paths:
-    - ".github/workflows/backend.yml"
-    - "CMakeLists.txt"
-    - "src/*"
-    - "scripts/*"
-  pull_request:
-    paths:
-    - ".github/workflows/backend.yml"
-    - "CMakeLists.txt"
-    - "src/*"
-    - "scripts/*"
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: "Artifact set to build"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - libraries
+          - executables
   workflow_call:
+    inputs:
+      build_mode:
+        description: "Artifact set to build"
+        required: false
+        default: all
+        type: string
 
 jobs:
   msvc:
@@ -60,10 +65,12 @@ jobs:
           cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }} -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="${{ env.TOOLCHAIN_FILE }}" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TRIPLET }} -DTTYD_BUILD_SHARED=ON
           cmake --build build --config Release
       - uses: actions/upload-artifact@v7
+        if: ${{ inputs.build_mode != 'libraries' }}
         with:
           name: ${{ matrix.exe_artifact }}
           path: build/Release/ttyd.exe
       - uses: actions/upload-artifact@v7
+        if: ${{ inputs.build_mode != 'executables' }}
         with:
           name: ${{ matrix.dll_artifact }}
           path: |
@@ -71,6 +78,7 @@ jobs:
             build/Release/ttyd.lib
   linux-shared:
     name: linux-shared (${{ matrix.arch }})
+    if: ${{ inputs.build_mode != 'executables' }}
     strategy:
       fail-fast: false
       matrix:
@@ -137,6 +145,7 @@ jobs:
           path: build-shared/libttyd.so
   macos-shared:
     name: macos-shared (${{ matrix.arch }})
+    if: ${{ inputs.build_mode != 'executables' }}
     strategy:
       fail-fast: false
       matrix:
@@ -166,6 +175,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: build-shared/libttyd.dylib
   cross:
+    if: ${{ inputs.build_mode != 'libraries' }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

@@ -82,6 +82,8 @@ On Windows this produces `ttyd.dll` under the build configuration directory, for
 
 Build Linux release artifacts on the oldest glibc version you need to support. The CI `ttyd.linux.so` and `ttyd.linux.aarch64.so` artifacts are built on Ubuntu 22.04 so they remain compatible with glibc 2.35 or newer. CI also publishes `ttyd.macos.x86_64.dylib`, `ttyd.macos.aarch64.dylib`, `ttyd.msvc.dll`, and `ttyd.msvc.arm64.dll`.
 
+To publish those native library artifacts, run the GitHub Actions workflow named `lib-release` manually from the version tag that matches `CMakeLists.txt`.
+
 When calling from Java FFI, pass arguments exactly as the CLI would receive them, including `argv[0]`. For example: `["ttyd", "-p", "7681", "bash"]`. The call runs the ttyd server loop and blocks until the server exits, so invoke it from a dedicated Java thread if the application must keep running other work.
 
 # Usage
